@@ -613,22 +613,49 @@ async def empire_collect(callback: types.CallbackQuery):
     uid, now, total_profit = callback.from_user.id, datetime.utcnow(), 0
     async with bot.db_pool.acquire() as conn:
         u = await conn.fetchrow("SELECT last_fleet FROM users WHERE user_id = $1", uid)
-        if not u['last_fleet']: return await callback.answer("❌ Никто не в рейсе!", show_alert=True)
-        hp = (now - u['last_fleet']).total_seconds() / 3600.0
-        if hp < 0.1: return await callback.answer("⏳ Рано собирать! Пусть поработают.", show_alert=True)
+        if not u['last_fleet']: 
+            return await callback.answer("❌ Никто не в рейсе!", show_alert=True)
+            
+        seconds_passed = (now - u['last_fleet']).total_seconds()
+        if seconds_passed < 60:  # Минимум 1 минута, чтобы не спамили кликами
+            return await callback.answer("⏳ Рано собирать! Пусть хоть круг сделают.", show_alert=True)
+            
+        hp = seconds_passed / 3600.0  может быть и меньше часа
         
-        working = await conn.fetch("SELECT g.id as gid, g.fuel, g.condition, g.driver_id, c.base_price, d.salary_ph FROM garage g JOIN cars c ON g.car_id = c.car_id JOIN drivers d ON g.driver_id = d.id WHERE g.user_id = $1 AND g.driver_id IS NOT NULL", uid)
+        working = await conn.fetch("""
+            SELECT g.id as gid, g.fuel, g.condition, g.driver_id, c.base_price, d.salary_ph 
+            FROM garage g JOIN cars c ON g.car_id = c.car_id JOIN drivers d ON g.driver_id = d.id 
+            WHERE g.user_id = $1 AND g.driver_id IS NOT NULL
+        """, uid)
+        
+        if not working:
+            return await callback.answer("❌ В таксопарке нет активных машин!", show_alert=True)
+
         for w in working:
-            profit = max(0, int((w['base_price'] * 0.01) * hp) - int(w['salary_ph'] * hp))
-            nf, nc = max(0, int(w['fuel'] - 10 * hp)), max(0, int(w['condition'] - 5 * hp))
-            total_profit += profit
+            # Считаем грязный доход и зарплату за прошедшее время
+            income = (w['base_price'] * 0.01) * hp
+            expense = w['salary_ph'] * hp
+            car_profit = int(income - expense)
+            
+            # Гарантируем минимальный профит в 1 рубль за работу, чтобы не было нулевых багов
+            if car_profit < 1 and w['fuel'] > 5:
+                car_profit = 1
+                
+            nf = max(0, int(w['fuel'] - (10 * hp)))
+            nc = max(0, int(w['condition'] - (5 * hp)))
+            
+            total_profit += max(0, car_profit)
+            
             if nf == 0 or nc == 0:
                 await conn.execute("UPDATE garage SET driver_id = NULL, fuel = $1, condition = $2 WHERE id = $3", nf, nc, w['gid'])
                 await conn.execute("UPDATE drivers SET is_working = FALSE WHERE id = $1", w['driver_id'])
             else:
                 await conn.execute("UPDATE garage SET fuel = $1, condition = $2 WHERE id = $3", nf, nc, w['gid'])
+                
         await conn.execute("UPDATE users SET money = money + $1, last_fleet = $2 WHERE user_id = $3", total_profit, now, uid)
-    await callback.answer(f"💸 Таксопарк принес {format_price(total_profit)} ₽!", show_alert=True); await empire_main(callback)
+        
+    await callback.answer(f"💸 Таксопарк принес {format_price(total_profit)}!", show_alert=True)
+    await empire_main(callback)
 
 # --- ГЛАВНОЕ МЕНЮ И ЗАПУСК ---
 @dp.callback_query(F.data == "back_main")
