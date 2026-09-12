@@ -617,10 +617,10 @@ async def empire_collect(callback: types.CallbackQuery):
             return await callback.answer("❌ Никто не в рейсе!", show_alert=True)
             
         seconds_passed = (now - u['last_fleet']).total_seconds()
-        if seconds_passed < 60:  # Минимум 1 минута, чтобы не спамили кликами
+        if seconds_passed < 60:  
             return await callback.answer("⏳ Рано собирать! Пусть хоть круг сделают.", show_alert=True)
             
-        hp = seconds_passed / 3600.0  может быть и меньше часа
+        hp = seconds_passed / 3600.0
         
         working = await conn.fetch("""
             SELECT g.id as gid, g.fuel, g.condition, g.driver_id, c.base_price, d.salary_ph 
@@ -632,12 +632,10 @@ async def empire_collect(callback: types.CallbackQuery):
             return await callback.answer("❌ В таксопарке нет активных машин!", show_alert=True)
 
         for w in working:
-            # Считаем грязный доход и зарплату за прошедшее время
             income = (w['base_price'] * 0.01) * hp
             expense = w['salary_ph'] * hp
             car_profit = int(income - expense)
             
-            # Гарантируем минимальный профит в 1 рубль за работу, чтобы не было нулевых багов
             if car_profit < 1 and w['fuel'] > 5:
                 car_profit = 1
                 
