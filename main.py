@@ -72,7 +72,7 @@ async def ping_render(request):
     return web.Response(text="GearZ is running")
 
 async def main():
-    bot.db_pool = await asyncpg.create_pool(DATABASE_URL)
+    bot.db_pool = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=5)
     
     app = web.Application()
     app.router.add_get('/', ping_render)
