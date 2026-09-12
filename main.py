@@ -78,19 +78,26 @@ def format_price(price: int) -> str:
     elif price >= 1_000: return f"{price / 1_000:.1f} тыс ₽".replace(".0", "")
     return f"{price} ₽"
 
-def get_main_menu():
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🚘 Гараж", callback_data="garage_0"),
-         InlineKeyboardButton(text="🏪 Автосалон", callback_data="shop_cats")],
-        [InlineKeyboardButton(text="💼 Контракты", callback_data="contracts"),
-         InlineKeyboardButton(text="🏢 Бизнес", callback_data="biz_main")],
-        [InlineKeyboardButton(text="🏁 Гонки", callback_data="racing"),
-         InlineKeyboardButton(text="🚕 Империя", callback_data="empire_main")],
-        [InlineKeyboardButton(text="🥷 Теневой рынок", callback_data="shadow_main"),
-         InlineKeyboardButton(text="🏴‍☠️ Синдикаты", callback_data="syndicate_main")],
-        [InlineKeyboardButton(text="⭐ Донат-Шоп", callback_data="donate_shop"),
-         InlineKeyboardButton(text="👤 Профиль", callback_data="profile")]
-    ])
+@dp.callback_query(F.data == "contracts")
+async def do_contract(callback: types.CallbackQuery):
+    uid, now = callback.from_user.id, datetime.utcnow()
+    async with bot.db_pool.acquire() as conn:
+        u = await conn.fetchrow("SELECT money, last_contract FROM users WHERE user_id = $1", uid)
+        if u['last_contract'] and (now - u['last_contract']).total_seconds() < 300:
+            rem = int(300 - (now - u['last_contract']).total_seconds())
+            return await callback.answer(f"⏳ Легавые на хвосте! Жди {rem//60} мин {rem%60} сек.", show_alert=True)
+        r = random.randint(800, 2500)
+        await conn.execute("UPDATE users SET money = money + $1, last_contract = $2 WHERE user_id = $3", r, now, uid)
+        new_balance = u['money'] + r
+    
+    phrases = ["Вскрыл сейф в ювелирном", "Вынес склад с запчастями", "Выполнил заказ на угон", "Провел теневую сделку в порту"]
+    text = f"💼 <b>Дело сделано!</b>\n\n💬 <i>{random.choice(phrases)}</i>\n💸 Твоя доля: <b>+{format_price(r)}</b>\n\n💳 Баланс: <b>{format_price(new_balance)}</b>"
+    
+    if callback.message.photo:
+        await callback.message.answer(text, reply_markup=get_main_menu(), parse_mode="HTML")
+        await callback.message.delete()
+    else:
+        await callback.message.edit_text(text, reply_markup=get_main_menu(), parse_mode="HTML")
 
 # --- СТАРТ И АДМИНКА ---
 @dp.message(Command("start"))
