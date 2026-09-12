@@ -68,10 +68,15 @@ async def init_db():
         """)
 
 def format_price(price: int) -> str:
-    if price >= 1_000_000_000: return f"{price / 1_000_000_000:g}млрд"
-    elif price >= 1_000_000: return f"{price / 1_000_000:g}млн"
-    elif price >= 1_000: return f"{price / 1_000:g}тыс"
-    return f"{price}"
+    try:
+        price = int(price)
+    except (TypeError, ValueError):
+        return "0 ₽"
+        
+    if price >= 1_000_000_000: return f"{price / 1_000_000_000:.1f} млрд ₽".replace(".0", "")
+    elif price >= 1_000_000: return f"{price / 1_000_000:.1f} млн ₽".replace(".0", "")
+    elif price >= 1_000: return f"{price / 1_000:.1f} тыс ₽".replace(".0", "")
+    return f"{price} ₽"
 
 def get_main_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
