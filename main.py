@@ -62,7 +62,16 @@ async def shop_menu(callback: types.CallbackQuery):
     markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
     
     await callback.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
-
+    
+def format_price(price: int) -> str:
+    if price >= 1_000_000_000:
+        return f"{price / 1_000_000_000:g}млрд ₽"
+    elif price >= 1_000_000:
+        return f"{price / 1_000_000:g}млн ₽"
+    elif price >= 1_000:
+        return f"{price / 1_000:g}тыс ₽"
+    return f"{price} ₽"
+    
 # Обработчик кнопки "Назад"
 @dp.callback_query(F.data == "back_main")
 async def back_to_main(callback: types.CallbackQuery):
