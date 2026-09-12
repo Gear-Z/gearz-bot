@@ -154,6 +154,66 @@ async def back_to_main(callback: types.CallbackQuery):
     else:
         await callback.message.edit_text("Главное меню:", reply_markup=get_main_menu())
 
+# --- 4. ПОКУПКА МАШИНЫ ---
+@dp.callback_query(F.data.startswith("buy_"))
+async def buy_car(callback: types.CallbackQuery):
+    car_id = int(callback.data.split("_")[1])
+    user_id = callback.from_user.id
+    
+    async with bot.db_pool.acquire() as connection:
+        # Открываем транзакцию (если будет ошибка, бабки не спишутся в пустоту)
+        async with connection.transaction():
+            car = await connection.fetchrow("SELECT name, base_price FROM cars WHERE car_id = $1", car_id)
+            user = await connection.fetchrow("SELECT money FROM users WHERE user_id = $1", user_id)
+            
+            if user['money'] < car['base_price']:
+                # Выводим всплывающее окно с ошибкой
+                await callback.answer("❌ Недостаточно средств на балансе!", show_alert=True)
+                return
+            
+            # Списываем бабки и добавляем тачку в гараж
+            await connection.execute("UPDATE users SET money = money - $1 WHERE user_id = $2", car['base_price'], user_id)
+            await connection.execute("INSERT INTO garage (user_id, car_id) VALUES ($1, $2)", user_id, car_id)
+    
+    # Поздравляем юзера (всплывающее окно)
+    await callback.answer(f"✅ Успешная покупка: {car['name']}!", show_alert=True)
+    
+    # Искусственно вызываем обновление карточки авто, чтобы баланс на экране сразу уменьшился
+    await shop_car_detail(callback)
+
+# --- 5. ПРОСМОТР ГАРАЖА ---
+@dp.callback_query(F.data == "garage")
+async def my_garage(callback: types.CallbackQuery):
+    user_id = callback.from_user.id
+    
+    # Делаем хитрый JOIN, чтобы вытащить названия машин из таблицы cars по их ID из таблицы garage
+    query = """
+        SELECT c.name, c.class 
+        FROM garage g
+        JOIN cars c ON g.car_id = c.car_id
+        WHERE g.user_id = $1
+    """
+    
+    async with bot.db_pool.acquire() as connection:
+        my_cars = await connection.fetch(query, user_id)
+        
+    if not my_cars:
+        text = "🕸 <b>Твой гараж пуст.</b> Заработай денег и загляни в автосалон!"
+    else:
+        text = "🚘 <b>ТВОЙ АВТОПАРК:</b>\n\n"
+        for i, car in enumerate(my_cars, 1):
+            text += f"{i}. <b>{car['name']}</b> <i>[{car['class']}]</i>\n"
+            
+    markup = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="back_main")]
+    ])
+    
+    if callback.message.photo:
+        await callback.message.answer(text, reply_markup=markup, parse_mode="HTML")
+        await callback.message.delete()
+    else:
+        await callback.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
+
 # Заглушка для Render
 async def ping_render(request):
     return web.Response(text="GearZ is running")
