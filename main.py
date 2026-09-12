@@ -631,12 +631,13 @@ async def empire_collect(callback: types.CallbackQuery):
             return await callback.answer("❌ В таксопарке нет активных машин!", show_alert=True)
 
         for w in working:
-            income = (w['base_price'] * 0.01) * hp
+            # Увеличиваем доходность машин: ставим 25% от цены тачки в час вместо 1%
+            income = (w['base_price'] * 0.25) * hp
             expense = w['salary_ph'] * hp
             car_profit = int(income - expense)
             
             if car_profit < 1 and w['fuel'] > 5:
-                car_profit = 1
+                car_profit = max(1000, int(w['base_price'] * 0.05))
                 
             nf = max(0, int(w['fuel'] - (10 * hp)))
             nc = max(0, int(w['condition'] - (5 * hp)))
