@@ -78,26 +78,19 @@ def format_price(price: int) -> str:
     elif price >= 1_000: return f"{price / 1_000:.1f} тыс ₽".replace(".0", "")
     return f"{price} ₽"
 
-@dp.callback_query(F.data == "contracts")
-async def do_contract(callback: types.CallbackQuery):
-    uid, now = callback.from_user.id, datetime.utcnow()
-    async with bot.db_pool.acquire() as conn:
-        u = await conn.fetchrow("SELECT money, last_contract FROM users WHERE user_id = $1", uid)
-        if u['last_contract'] and (now - u['last_contract']).total_seconds() < 300:
-            rem = int(300 - (now - u['last_contract']).total_seconds())
-            return await callback.answer(f"⏳ Легавые на хвосте! Жди {rem//60} мин {rem%60} сек.", show_alert=True)
-        r = random.randint(800, 2500)
-        await conn.execute("UPDATE users SET money = money + $1, last_contract = $2 WHERE user_id = $3", r, now, uid)
-        new_balance = u['money'] + r
-    
-    phrases = ["Вскрыл сейф в ювелирном", "Вынес склад с запчастями", "Выполнил заказ на угон", "Провел теневую сделку в порту"]
-    text = f"💼 <b>Дело сделано!</b>\n\n💬 <i>{random.choice(phrases)}</i>\n💸 Твоя доля: <b>+{format_price(r)}</b>\n\n💳 Баланс: <b>{format_price(new_balance)}</b>"
-    
-    if callback.message.photo:
-        await callback.message.answer(text, reply_markup=get_main_menu(), parse_mode="HTML")
-        await callback.message.delete()
-    else:
-        await callback.message.edit_text(text, reply_markup=get_main_menu(), parse_mode="HTML")
+def get_main_menu():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🚘 Гараж", callback_data="garage_0"),
+         InlineKeyboardButton(text="🏪 Автосалон", callback_data="shop_cats")],
+        [InlineKeyboardButton(text="💼 Контракты", callback_data="contracts"),
+         InlineKeyboardButton(text="🏢 Бизнес", callback_data="biz_main")],
+        [InlineKeyboardButton(text="🏁 Гонки", callback_data="racing"),
+         InlineKeyboardButton(text="🚕 Империя", callback_data="empire_main")],
+        [InlineKeyboardButton(text="🥷 Теневой рынок", callback_data="shadow_main"),
+         InlineKeyboardButton(text="🏴‍☠️ Синдикаты", callback_data="syndicate_main")],
+        [InlineKeyboardButton(text="⭐ Донат-Шоп", callback_data="donate_shop"),
+         InlineKeyboardButton(text="👤 Профиль", callback_data="profile")]
+    ])
 
 # --- СТАРТ И АДМИНКА ---
 @dp.message(Command("start"))
@@ -107,7 +100,7 @@ async def cmd_start(message: types.Message):
     async with bot.db_pool.acquire() as conn:
         await conn.execute("INSERT INTO users (user_id, username, money) VALUES ($1, $2, 1000) ON CONFLICT (user_id) DO NOTHING;", user_id, username)
         user_money = await conn.fetchval("SELECT money FROM users WHERE user_id = $1", user_id)
-    text = f"🏴‍☠️ <b>Добро пожаловать в GearZ, {username}.</b>\n\nБаланс: <b>{format_price(user_money)} ₽</b>.\nСтрой свою империю. Твой ход:"
+    text = f"🏴‍☠️ <b>Добро пожаловать в GearZ, {username}.</b>\n\nБаланс: <b>{format_price(user_money)}</b>.\nСтрой свою империю. Твой ход:"
     await message.answer(text, reply_markup=get_main_menu(), parse_mode="HTML")
 
 @dp.message(Command("givemoney"))
@@ -117,7 +110,7 @@ async def admin_give(message: types.Message):
     if len(args) == 2 and args[1].isdigit():
         async with bot.db_pool.acquire() as conn:
             await conn.execute("UPDATE users SET money = money + $1 WHERE user_id = $2", int(args[1]), message.from_user.id)
-        await message.answer(f"👑 Баланс пополнен на {format_price(int(args[1]))} ₽!", parse_mode="HTML")
+        await message.answer(f"👑 Баланс пополнен на {format_price(int(args[1]))}!", parse_mode="HTML")
 
 @dp.callback_query(F.data == "profile")
 async def user_profile(callback: types.CallbackQuery):
@@ -127,9 +120,9 @@ async def user_profile(callback: types.CallbackQuery):
         drivers_count = await conn.fetchval("SELECT COUNT(*) FROM drivers WHERE user_id = $1", callback.from_user.id)
         syn_name = await conn.fetchval("SELECT name FROM syndicates WHERE id = $1", user['syndicate_id']) if user['syndicate_id'] else "Нет"
     biz = BIZ_INFO[user['biz_lvl']]['name'] if user['biz_lvl'] > 0 else "Нет"
-    text = (f"👤 <b>ПРОФИЛЬ</b>\n\n💰 Наличные: <b>{format_price(user['money'])} ₽</b>\n⚙️ Детали: <b>{user['tuning_parts']} шт.</b>\n"
+    text = (f"👤 <b>ПРОФИЛЬ</b>\n\n💰 Наличные: <b>{format_price(user['money'])}</b>\n⚙️ Детали: <b>{user['tuning_parts']} шт.</b>\n"
             f"📦 Кейсы: <b>{user['cases']} шт.</b>\n\n🏢 Бизнес: <b>{biz}</b>\n🏴‍☠️ Синдикат: <b>{syn_name}</b>\n🚕 Водителей: <b>{drivers_count}</b>\n\n"
-            f"🚘 Автопарк: <b>{garage_stats['count']} / {user['garage_limit']} мест</b>\n💎 Капитал: <b>{format_price(garage_stats['value'])} ₽</b>\n"
+            f"🚘 Автопарк: <b>{garage_stats['count']} / {user['garage_limit']} мест</b>\n💎 Капитал: <b>{format_price(garage_stats['value'])}</b>\n"
             f"🏁 Гонки (W/L): <b>{user['races_won']} / {user['races_lost']}</b>")
     await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="back_main")]]), parse_mode="HTML")
 
@@ -137,9 +130,9 @@ async def user_profile(callback: types.CallbackQuery):
 @dp.callback_query(F.data == "donate_shop")
 async def donate_shop(callback: types.CallbackQuery):
     text = (f"⭐ <b>МАГАЗИН ЭКСКЛЮЗИВОВ (TELEGRAM STARS)</b>\n\n"
-            f"1️⃣ <b>Пакет «Мажор»</b> (10 млн ₽ + 50 кейсов) — <b>100 ⭐</b>\n\n"
+            f"1️⃣ <b>Пакет «Мажор»</b> (10 млн + 50 кейсов) — <b>100 ⭐</b>\n\n"
             f"2️⃣ <b>Лимитный гиперкар</b> (Koenigsegg Jesko + Макс Тюнинг) — <b>350 ⭐</b>\n\n"
-            f"3️⃣ <b>Легендарный водила</b> (Скилл 5 ур, ЗП 0 ₽) — <b>150 ⭐</b>")
+            f"3️⃣ <b>Легендарный водила</b> (Скилл 5 ур, ЗП 0) — <b>150 ⭐</b>")
     markup = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="💳 Купить «Мажор» (100 ⭐)", callback_data="buy_star_1")],
         [InlineKeyboardButton(text="🏎 Купить Jesko (350 ⭐)", callback_data="buy_star_2")],
@@ -169,7 +162,7 @@ async def successful_payment(message: types.Message):
     async with bot.db_pool.acquire() as conn:
         if payload == "donate_1":
             await conn.execute("UPDATE users SET money = money + 10000000, cases = cases + 50 WHERE user_id = $1", user_id)
-            await message.answer("⭐ Успешно! Начислено 10 млн ₽ и 50 кейсов.", parse_mode="HTML")
+            await message.answer("⭐ Успешно! Начислено 10 млн и 50 кейсов.", parse_mode="HTML")
         elif payload == "donate_2":
             jesko_id = await conn.fetchval("SELECT car_id FROM cars WHERE name LIKE '%Jesko%' LIMIT 1")
             if jesko_id: await conn.execute("INSERT INTO garage (user_id, car_id, tuning_lvl) VALUES ($1, $2, 5)", user_id, jesko_id)
@@ -186,7 +179,7 @@ async def handle_biz(callback: types.CallbackQuery):
     async with bot.db_pool.acquire() as conn:
         user = await conn.fetchrow("SELECT money, biz_lvl, last_profit FROM users WHERE user_id = $1", user_id)
         if user['biz_lvl'] == 0:
-            text = f"🏢 У тебя нет бизнеса.\n\nПервый бизнес: <b>{BIZ_INFO[1]['name']}</b>\n💰 Цена: {format_price(BIZ_INFO[1]['cost'])} ₽\n📈 Доход: {format_price(BIZ_INFO[1]['income_ph'])} / час"
+            text = f"🏢 У тебя нет бизнеса.\n\nПервый бизнес: <b>{BIZ_INFO[1]['name']}</b>\n💰 Цена: {format_price(BIZ_INFO[1]['cost'])}\n📈 Доход: {format_price(BIZ_INFO[1]['income_ph'])} / час"
             markup = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="💸 Купить шиномонтаж", callback_data="biz_upgrade")],
                 [InlineKeyboardButton(text="🔙 Назад", callback_data="back_main")]
@@ -196,7 +189,7 @@ async def handle_biz(callback: types.CallbackQuery):
             diff = min((now - user['last_profit']).total_seconds(), 86400) if user['last_profit'] else 0
             earned = int((info['income_ph'] / 3600) * diff)
             text = (f"🏢 Бизнес: <b>{info['name']}</b> (Ур. {lvl})\n📈 Доход: {format_price(info['income_ph'])}/час\n\n"
-                    f"💵 В кассе: <b>{format_price(earned)} ₽</b>\n💳 Баланс: {format_price(user['money'])} ₽")
+                    f"💵 В кассе: <b>{format_price(earned)}</b>\n💳 Баланс: {format_price(user['money'])}")
             keyboard = [[InlineKeyboardButton(text="💰 Собрать прибыль", callback_data="biz_collect")]]
             if lvl + 1 in BIZ_INFO:
                 keyboard.append([InlineKeyboardButton(text=f"⬆️ Улучшить до {BIZ_INFO[lvl+1]['name']} ({format_price(BIZ_INFO[lvl+1]['cost'])})", callback_data="biz_upgrade")])
@@ -212,7 +205,7 @@ async def biz_upgrade(callback: types.CallbackQuery):
         next_lvl = u['biz_lvl'] + 1
         if next_lvl not in BIZ_INFO: return await callback.answer("👑 Максимальный уровень бизнеса!", show_alert=True)
         cost = BIZ_INFO[next_lvl]['cost']
-        if u['money'] < cost: return await callback.answer(f"❌ Нужно {format_price(cost)} ₽!", show_alert=True)
+        if u['money'] < cost: return await callback.answer(f"❌ Нужно {format_price(cost)}!", show_alert=True)
         await conn.execute("UPDATE users SET money = money - $1, biz_lvl = $2, last_profit = $3 WHERE user_id = $4", cost, next_lvl, now, uid)
     await callback.answer("✅ Успешно куплено/улучшено!", show_alert=True)
     await handle_biz(callback)
@@ -227,7 +220,7 @@ async def biz_collect(callback: types.CallbackQuery):
         earned = int((BIZ_INFO[u['biz_lvl']]['income_ph'] / 3600) * diff)
         if earned < 10: return await callback.answer("⏳ Касса пуста!", show_alert=True)
         await conn.execute("UPDATE users SET money = money + $1, last_profit = $2 WHERE user_id = $3", earned, now, uid)
-    await callback.answer(f"💸 Собрано: {format_price(earned)} ₽!", show_alert=True)
+    await callback.answer(f"💸 Собрано: {format_price(earned)}!", show_alert=True)
     await handle_biz(callback)
 
 # --- ТЕНЕВОЙ РЫНОК, УГОН, КЕЙСЫ И КАЗИНО ---
@@ -235,7 +228,7 @@ async def biz_collect(callback: types.CallbackQuery):
 async def shadow_main(callback: types.CallbackQuery):
     text = f"🥷 <b>ТЕНЕВОЙ РЫНОК И КАЗИНО</b>\n\nВыбирай тему:"
     markup = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📦 Кейсы (25к ₽)", callback_data="cases_main"), InlineKeyboardButton(text="🧨 Угон авто (100к ₽)", callback_data="theft_main")],
+        [InlineKeyboardButton(text="📦 Кейсы (25к)", callback_data="cases_main"), InlineKeyboardButton(text="🧨 Угон авто (100к)", callback_data="theft_main")],
         [InlineKeyboardButton(text="🎰 Казино (Шанс 10%)", callback_data="casino_main")],
         [InlineKeyboardButton(text="🔙 Главное меню", callback_data="back_main")]
     ])
@@ -271,7 +264,7 @@ async def case_open(callback: types.CallbackQuery):
         else:
             cash = random.randint(10000, 50000)
             await conn.execute("UPDATE users SET cases = cases - 1, money = money + $1 WHERE user_id = $2", cash, callback.from_user.id)
-            msg = f"💸 Выпал кэш: {format_price(cash)} ₽!"
+            msg = f"💸 Выпал кэш: {format_price(cash)}!"
     await callback.answer(msg, show_alert=True); await cases_main(callback)
 
 @dp.callback_query(F.data == "theft_main")
@@ -298,11 +291,11 @@ async def theft_attempt(callback: types.CallbackQuery):
         if random.randint(1, 100) <= 30:
             car = await conn.fetchrow("SELECT car_id, name, base_price FROM cars ORDER BY RANDOM() LIMIT 1")
             await conn.execute("INSERT INTO garage (user_id, car_id) VALUES ($1, $2)", uid, car['car_id'])
-            await callback.answer(f"🎉 Успех! Угнан {car['name']} ({format_price(car['base_price'])} ₽)!", show_alert=True)
+            await callback.answer(f"🎉 Успех! Угнан {car['name']} ({format_price(car['base_price'])})!", show_alert=True)
         else:
             fine = random.randint(50000, 200000)
             await conn.execute("UPDATE users SET money = GREATEST(0, money - $1) WHERE user_id = $2", fine, uid)
-            await callback.answer(f"🚨 Облава! Штраф {format_price(fine)} ₽.", show_alert=True)
+            await callback.answer(f"🚨 Облава! Штраф {format_price(fine)}.", show_alert=True)
     await shadow_main(callback)
 
 @dp.callback_query(F.data == "casino_main")
@@ -324,10 +317,10 @@ async def process_bet(callback: types.CallbackQuery):
         if random.randint(1, 100) <= 10:
             win = amount * 5
             await conn.execute("UPDATE users SET money = money + $1 WHERE user_id = $2", win - amount, uid)
-            await callback.answer(f"🎉 ДЖЕКПОТ! Выигрыш {format_price(win)} ₽!", show_alert=True)
+            await callback.answer(f"🎉 ДЖЕКПОТ! Выигрыш {format_price(win)}!", show_alert=True)
         else:
             await conn.execute("UPDATE users SET money = money - $1 WHERE user_id = $2", amount, uid)
-            await callback.answer(f"😢 Мимо! Потеряно {format_price(amount)} ₽.", show_alert=True)
+            await callback.answer(f"😢 Мимо! Потеряно {format_price(amount)}.", show_alert=True)
     await casino_main(callback)
 
 # --- СИНДИКАТЫ (КЛАНЫ) ---
@@ -345,7 +338,7 @@ async def syndicate_main(callback: types.CallbackQuery):
         else:
             syn = await conn.fetchrow("SELECT * FROM syndicates WHERE id = $1", u['syndicate_id'])
             cnt = await conn.fetchval("SELECT COUNT(*) FROM users WHERE syndicate_id = $1", u['syndicate_id'])
-            text = f"🏴‍☠️ Клан: <b>{syn['name']}</b>\n👥 Участников: {cnt}\n💰 Общак: <b>{format_price(syn['treasury'])} ₽</b>"
+            text = f"🏴‍☠️ Клан: <b>{syn['name']}</b>\n👥 Участников: {cnt}\n💰 Общак: <b>{format_price(syn['treasury'])}</b>"
             markup = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="🚪 Покинуть клан", callback_data="syn_leave")],
                 [InlineKeyboardButton(text="🔙 Главное меню", callback_data="back_main")]
@@ -378,7 +371,7 @@ async def my_garage(callback: types.CallbackQuery):
             lim = await conn.fetchval("SELECT garage_limit FROM users WHERE user_id = $1", uid)
             cost = lim * 200000
             if await conn.fetchval("SELECT money FROM users WHERE user_id = $1", uid) < cost:
-                return await callback.answer(f"❌ Нужно {format_price(cost)} ₽!", show_alert=True)
+                return await callback.answer(f"❌ Нужно {format_price(cost)}!", show_alert=True)
             await conn.execute("UPDATE users SET money = money - $1, garage_limit = garage_limit + 1 WHERE user_id = $2", cost, uid)
             await callback.answer("✅ Гараж расширен!", show_alert=True)
         callback.data = "garage_0"
@@ -415,7 +408,7 @@ async def my_car_menu(callback: types.CallbackQuery):
     sell_price = int(car['base_price'] * 0.75)
     drv = "👨‍✈️ В рейсе" if car['driver_id'] else "💤 В гараже"
     text = (f"🚘 <b>{car['name']}</b> {drv}\n⚙️ Мощность: <b>{actual_hp} л.с.</b> (Тюнинг: {car['tuning_lvl']}/5)\n"
-            f"⛽ Бак: {car['fuel']}% | 🔧 Состояние: {car['condition']}%\n💵 Скупщик дает: {format_price(sell_price)} ₽")
+            f"⛽ Бак: {car['fuel']}% | 🔧 Состояние: {car['condition']}%\n💵 Скупщик дает: {format_price(sell_price)}")
     markup = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🛠 Тюнинг", callback_data=f"tune_{gid}"), InlineKeyboardButton(text="🔧 СТО", callback_data=f"service_{gid}")],
         [InlineKeyboardButton(text="🤝 Продать", callback_data=f"sellcar_{gid}_{sell_price}")],
@@ -432,7 +425,7 @@ async def tune_car(callback: types.CallbackQuery):
         if car['tuning_lvl'] >= 5: return await callback.answer("👑 Макс. тюнинг!", show_alert=True)
         parts, cost = (car['tuning_lvl'] + 1) * 15, (car['tuning_lvl'] + 1) * 150000
         u = await conn.fetchrow("SELECT money, tuning_parts FROM users WHERE user_id = $1", uid)
-        if u['money'] < cost or u['tuning_parts'] < parts: return await callback.answer(f"❌ Нужно: {parts} деталей и {format_price(cost)} ₽", show_alert=True)
+        if u['money'] < cost or u['tuning_parts'] < parts: return await callback.answer(f"❌ Нужно: {parts} деталей и {format_price(cost)}", show_alert=True)
         await conn.execute("UPDATE users SET money = money - $1, tuning_parts = tuning_parts - $2 WHERE user_id = $3", cost, parts, uid)
         await conn.execute("UPDATE garage SET tuning_lvl = tuning_lvl + 1 WHERE id = $1", gid)
     await callback.answer("✅ Прокачано!", show_alert=True); callback.data = f"mycar_{gid}"; await my_car_menu(callback)
@@ -458,7 +451,7 @@ async def sell_my_car(callback: types.CallbackQuery):
         if car['driver_id']: return await callback.answer("❌ Отзови из рейса!", show_alert=True)
         await conn.execute("DELETE FROM garage WHERE id = $1", int(gid))
         await conn.execute("UPDATE users SET money = money + $1 WHERE user_id = $2", int(price), callback.from_user.id)
-    await callback.answer(f"✅ Продано за {format_price(int(price))} ₽!", show_alert=True)
+    await callback.answer(f"✅ Продано за {format_price(int(price))}!", show_alert=True)
     callback.data = "garage_0"; await my_garage(callback)
 
 # --- АВТОСАЛОН ---
@@ -470,7 +463,7 @@ async def shop_categories(callback: types.CallbackQuery):
     builder = InlineKeyboardBuilder()
     for row in classes: builder.button(text=f"🔹 {row['class']}", callback_data=f"shop_list_{row['class']}_0")
     builder.button(text="🔙 Главное меню", callback_data="back_main"); builder.adjust(2)
-    text = f"🏪 <b>АВТОСАЛОН</b>\n💳 Баланс: <b>{format_price(m)} ₽</b>\n\nВыбери класс:"
+    text = f"🏪 <b>АВТОСАЛОН</b>\n💳 Баланс: <b>{format_price(m)}</b>\n\nВыбери класс:"
     if callback.message.photo:
         await callback.message.answer(text, reply_markup=builder.as_markup(), parse_mode="HTML")
         await callback.message.delete()
@@ -482,7 +475,7 @@ async def shop_list(callback: types.CallbackQuery):
     async with bot.db_pool.acquire() as conn:
         cars = await conn.fetch("SELECT car_id, name, base_price FROM cars WHERE class = $1 ORDER BY base_price ASC LIMIT $2 OFFSET $3", cls, lim + 1, p * lim)
     b = InlineKeyboardBuilder()
-    for car in cars[:lim]: b.button(text=f"{car['name']} — {format_price(car['base_price'])} ₽", callback_data=f"shop_car_{car['car_id']}")
+    for car in cars[:lim]: b.button(text=f"{car['name']} — {format_price(car['base_price'])}", callback_data=f"shop_car_{car['car_id']}")
     nav = []
     if p > 0: nav.append(InlineKeyboardButton(text="⬅️", callback_data=f"shop_list_{cls}_{p-1}"))
     if len(cars) > lim: nav.append(InlineKeyboardButton(text="➡️", callback_data=f"shop_list_{cls}_{p+1}"))
@@ -502,7 +495,7 @@ async def shop_car_detail(callback: types.CallbackQuery):
         car = await conn.fetchrow("SELECT * FROM cars WHERE car_id = $1", cid)
         m = await conn.fetchval("SELECT money FROM users WHERE user_id = $1", callback.from_user.id)
     text = (f"🚘 <b>{car['name']}</b>\n⚙️ {car['hp']} л.с. | 💼 {car['class']}\n\n<i>{car['description']}</i>\n\n"
-            f"💰 Цена: <b>{format_price(car['base_price'])} ₽</b>\n💳 Баланс: {format_price(m)} ₽")
+            f"💰 Цена: <b>{format_price(car['base_price'])}</b>\n💳 Баланс: {format_price(m)}")
     markup = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="💸 КУПИТЬ", callback_data=f"buy_{cid}")],
         [InlineKeyboardButton(text="🔙 Назад", callback_data=f"shop_list_{car['class']}_0")]
@@ -540,10 +533,16 @@ async def do_contract(callback: types.CallbackQuery):
             return await callback.answer(f"⏳ Легавые на хвосте! Жди {rem//60} мин {rem%60} сек.", show_alert=True)
         r = random.randint(800, 2500)
         await conn.execute("UPDATE users SET money = money + $1, last_contract = $2 WHERE user_id = $3", r, now, uid)
-    text = f"💼 <b>Дело сделано!</b>\n💸 Твоя доля: <b>+{format_price(r)} ₽</b>"
+        new_balance = u['money'] + r
+    
+    phrases = ["Вскрыл сейф в ювелирном", "Вынес склад с запчастями", "Выполнил заказ на угон", "Провел теневую сделку в порту"]
+    text = f"💼 <b>Дело сделано!</b>\n\n💬 <i>{random.choice(phrases)}</i>\n💸 Твоя доля: <b>+{format_price(r)}</b>\n\n💳 Баланс: <b>{format_price(new_balance)}</b>"
+    
     if callback.message.photo:
-        await callback.message.answer(text, reply_markup=get_main_menu(), parse_mode="HTML"); await callback.message.delete()
-    else: await callback.message.edit_text(text, reply_markup=get_main_menu(), parse_mode="HTML")
+        await callback.message.answer(text, reply_markup=get_main_menu(), parse_mode="HTML")
+        await callback.message.delete()
+    else:
+        await callback.message.edit_text(text, reply_markup=get_main_menu(), parse_mode="HTML")
 
 @dp.callback_query(F.data == "racing")
 async def racing(callback: types.CallbackQuery):
@@ -561,11 +560,11 @@ async def racing(callback: types.CallbackQuery):
         
         if random.randint(1, 100) <= win_chance:
             await conn.execute("UPDATE users SET money=money+$1, last_race=$2, races_won=races_won+1 WHERE user_id=$3", reward, now, uid)
-            text = f"🏆 <b>ПОБЕДА!</b>\n{best['name']} обошел {en['name']}.\n💸 Выигрыш: +{format_price(reward)} ₽"
+            text = f"🏆 <b>ПОБЕДА!</b>\n{best['name']} обошел {en['name']}.\n💸 Выигрыш: +{format_price(reward)}"
         else:
             loss = min(int(reward * 0.2), u['money'])
             await conn.execute("UPDATE users SET money=money-$1, last_race=$2, races_lost=races_lost+1 WHERE user_id=$3", loss, now, uid)
-            text = f"💥 <b>ПОРАЖЕНИЕ</b>\n{en['name']} ушел в отрыв.\n📉 Потери: -{format_price(loss)} ₽"
+            text = f"💥 <b>ПОРАЖЕНИЕ</b>\n{en['name']} ушел в отрыв.\n📉 Потери: -{format_price(loss)}"
     await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="back_main")]]), parse_mode="HTML")
 
 @dp.callback_query(F.data == "empire_main")
@@ -668,8 +667,10 @@ async def ping_render(request): return web.Response(text="GearZ is running")
 async def main():
     bot.db_pool = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=5)
     await init_db()
-    app = web.Application(); app.router.add_get('/', ping_render)
-    runner = web.AppRunner(app); await runner.setup()
+    app = web.Application()
+    app.router.add_get('/', ping_render)
+    runner = web.AppRunner(app)
+    await runner.setup()
     await web.TCPSite(runner, '0.0.0.0', int(os.environ.get("PORT", 8080))).start()
     print("GearZ Ultimate Loaded.")
     await dp.start_polling(bot)
